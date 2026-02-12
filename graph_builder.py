@@ -3,7 +3,7 @@ Graph Builder for Expression Evaluation Tree
 Generates all possible ways to evaluate an arithmetic expression
 """
 
-from tokenizer import tokenize, validate_tokens
+from tokenizer import tokenize, validate_tokens, OPEN_BRACKETS, CLOSE_BRACKETS, BRACKET_PAIRS
 from typing import List, Tuple, Dict
 import uuid
 
@@ -50,22 +50,23 @@ OPERATOR_PRIORITY = {
 }
 
 
-def get_parenthesis_depth(tokens: List[str], op_index: int) -> int:
+def get_bracket_depth(tokens: List[str], op_index: int) -> int:
     """
-    Calculate the parenthesis depth at a given operator position.
+    Calculate the bracket depth at a given operator position.
+    All bracket types (, {, [ are treated equivalently for depth.
 
     Args:
         tokens: List of tokens
         op_index: Index of the operator
 
     Returns:
-        Depth (number of unclosed open parentheses before this position)
+        Depth (number of unclosed open brackets before this position)
     """
     depth = 0
     for i in range(op_index):
-        if tokens[i] == '(':
+        if tokens[i] in OPEN_BRACKETS:
             depth += 1
-        elif tokens[i] == ')':
+        elif tokens[i] in CLOSE_BRACKETS:
             depth -= 1
     return depth
 
@@ -79,10 +80,10 @@ def get_operation_priority(op: Tuple[int, str], tokens: List[str] = None) -> Tup
         tokens: List of tokens
 
     Returns:
-        Tuple of (parenthesis_depth, operator_priority)
+        Tuple of (bracket_depth, operator_priority)
     """
     op_index, operator = op
-    depth = get_parenthesis_depth(tokens, op_index) if tokens else 0
+    depth = get_bracket_depth(tokens, op_index) if tokens else 0
     priority = OPERATOR_PRIORITY.get(operator, 0)
     return (depth, priority)
 
@@ -217,7 +218,7 @@ class ExpressionGraph:
         """
         Find all operator positions that can be performed.
         An operator is available only if both adjacent tokens are numbers
-        (not parentheses).
+        (not brackets).
 
         Args:
             tokens: List of tokens
@@ -227,16 +228,17 @@ class ExpressionGraph:
         """
         operations = []
         operators = ['+', '-', '*', '/', '^']
+        all_brackets = OPEN_BRACKETS + CLOSE_BRACKETS
 
         for i, token in enumerate(tokens):
             if token in operators:
-                # Check that left operand is a number (not a parenthesis)
+                # Check that left operand is a number (not a bracket)
                 left = tokens[i - 1]
-                # Check that right operand is a number (not a parenthesis)
+                # Check that right operand is a number (not a bracket)
                 right = tokens[i + 1]
 
-                # Both must be numbers (not ( or ))
-                if left not in ['(', ')'] and right not in ['(', ')']:
+                # Both must be numbers (not any bracket type)
+                if left not in all_brackets and right not in all_brackets:
                     operations.append((i, token))
 
         return operations
@@ -281,15 +283,16 @@ class ExpressionGraph:
             tokens[op_index+2:]     # Everything after right operand
         )
 
-        # Simplify any (number) patterns
-        new_tokens = self._simplify_parentheses(new_tokens)
+        # Simplify any bracket(number) patterns like (5), {5}, [5]
+        new_tokens = self._simplify_brackets(new_tokens)
 
         return new_tokens
 
-    def _simplify_parentheses(self, tokens: List[str]) -> List[str]:
+    def _simplify_brackets(self, tokens: List[str]) -> List[str]:
         """
-        Remove parentheses that contain only a single number.
-        Pattern: '(', number, ')' -> number
+        Remove brackets that contain only a single number.
+        Pattern: open_bracket, number, matching_close_bracket -> number
+        Works for all bracket types: (), {}, []
 
         Args:
             tokens: List of tokens
@@ -297,16 +300,19 @@ class ExpressionGraph:
         Returns:
             Simplified token list
         """
+        all_brackets = OPEN_BRACKETS + CLOSE_BRACKETS
+        operators = ['+', '-', '*', '/', '^']
+
         changed = True
         while changed:
             changed = False
             i = 0
             while i < len(tokens) - 2:
-                # Look for pattern: '(', number, ')'
-                if (tokens[i] == '(' and
-                    tokens[i + 2] == ')' and
-                    tokens[i + 1] not in ['(', ')', '+', '-', '*', '/', '^']):
-                    # Remove the parentheses, keep the number
+                # Look for pattern: open_bracket, number, matching_close_bracket
+                if (tokens[i] in OPEN_BRACKETS and
+                    tokens[i + 1] not in all_brackets + operators and
+                    tokens[i + 2] == BRACKET_PAIRS[tokens[i]]):
+                    # Remove the brackets, keep the number
                     tokens = tokens[:i] + [tokens[i + 1]] + tokens[i + 3:]
                     changed = True
                 else:
@@ -375,3 +381,27 @@ if __name__ == "__main__":
     print("=" * 60)
     graph7 = ExpressionGraph("(2+3)*(4+5)")
     graph7.print_summary()
+
+    print("\n" + "=" * 60)
+    print("Test 8: Curly braces {2+3}*5")
+    print("=" * 60)
+    graph8 = ExpressionGraph("{2+3}*5")
+    graph8.print_summary()
+
+    print("\n" + "=" * 60)
+    print("Test 9: Square brackets [2+3]*5")
+    print("=" * 60)
+    graph9 = ExpressionGraph("[2+3]*5")
+    graph9.print_summary()
+
+    print("\n" + "=" * 60)
+    print("Test 10: Mixed brackets {[2+3]}*5")
+    print("=" * 60)
+    graph10 = ExpressionGraph("{[2+3]}*5")
+    graph10.print_summary()
+
+    print("\n" + "=" * 60)
+    print("Test 11: Nested brackets 2+{3*[1+2]}")
+    print("=" * 60)
+    graph11 = ExpressionGraph("2+{3*[1+2]}")
+    graph11.print_summary()
